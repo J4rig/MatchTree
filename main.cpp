@@ -10,6 +10,13 @@ constexpr int n = 5;
 
 Color colors[n] = { RED, GREEN, BLUE, YELLOW, PURPLE };
 
+enum class STATE {
+	SCAN = 0,
+	DELETE,
+	SHIFT,
+	FILL
+};
+
 class Tile {
 public:
 	int value = 0;
@@ -23,10 +30,14 @@ public:
 };
 
 
-typedef vector<shared_ptr<Tile>> Row;
-typedef vector<shared_ptr<Row>> Grid;
+
 
 class Board {
+private:
+	typedef vector<shared_ptr<Tile>> Row;
+	typedef vector<shared_ptr<Row>> Grid;
+	int scan_counter = 0;
+
 public:
 	Vector2 dimensions = { 0,0 };
 	shared_ptr<Grid> grid = make_shared<Grid>();
@@ -35,6 +46,7 @@ public:
 	Vector2 offset = { 0,0 };
 	Vector2 tile_size = { 10,10 };
 	int tile_space = 2;
+	STATE state = STATE::SCAN;
 
 	Board(Vector2 dimensions, Vector2 offset, Vector2 tile_size, int tile_space) :
 		dimensions(dimensions), offset(offset), tile_size(tile_size), tile_space(tile_space) 
@@ -102,7 +114,6 @@ public:
 				if (length >= 3) markRow(length);
 				length = evaluateColumn();
 				if (length >= 3) markColumn(length);
-
 			}
 		}
 	}
@@ -287,8 +298,39 @@ public:
 			getTile({ to.x, to.y })->value = tmp_value;
 		}
 	}
-};
 
+	void updateState() {
+		if (state == STATE::SCAN) {
+			cout << "SCAN\n";
+			scan_counter++;
+			scan();
+			if (n_of_matched > 0) {
+				scan_counter = 0;
+				state = STATE::DELETE;
+			}
+		}
+		else if (state == STATE::DELETE) {
+			cout << "DLELETE\n";
+			deleteMatches();
+			state = STATE::SHIFT;
+		}
+		else if (state == STATE::SHIFT) {
+			cout << "SHIFT\n";
+			shiftTiles();
+			state = STATE::FILL;
+		}
+		else if (state == STATE::FILL) {
+			cout << "FILL remaining: " << n_of_matched << "\n";
+			fillHoles();
+			if (n_of_matched == 0) state = STATE::SCAN;
+			else state = STATE::SHIFT;
+		}
+	}
+
+	bool isStable() {
+		return scan_counter > 1;
+	}
+};
 
 int main() {
 	
@@ -297,41 +339,25 @@ int main() {
 	Board board = Board({ 8,10 },{50,50},{20,20},5);
 	board.print();
 
-	int state = 0;
+	STATE state = STATE::SCAN;
 
 	Vector2 origin = {};
 	Vector2 direction = {};
 	Vector2 selected_tile_coordinates = {};
-	int tmp_value = 0;
+
+	float time_since_update = 0.0f;
+	float update_period = 0.25f;
 	
 	SetTargetFPS(30);
 	while (!WindowShouldClose()) {
-		if (IsKeyPressed(KEY_SPACE)) {
-			if (state == 0) { // scan
-				cout << "SCAN\n";
-				board.scan();
-				if (board.n_of_matched > 0) state = 1;
-			}
-			else if (state == 1) { // delete
-				cout << "DLELETE\n";
-				board.deleteMatches();
-				state = 2;
-			}
-			else if (state == 2) { // shift
-				cout << "SHIFT\n";
-				board.shiftTiles();
-				state = 3;
-			}
-			else if (state == 3) { // fill
-				cout << "FILL remaining: " << board.n_of_matched << "\n";
-				board.fillHoles();
-				if (board.n_of_matched == 0) state = 0;
-				else state = 2;
-			}
+
+		time_since_update += GetFrameTime();
+		if (time_since_update >= update_period) {
+			board.updateState();
+			time_since_update = 0.0f;
 		}
 
-		
-		if (state == 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+		if (board.isStable() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
 			selected_tile_coordinates = GetMousePosition();
 			selected_tile_coordinates = Vector2Subtract(selected_tile_coordinates, board.offset);
 			selected_tile_coordinates = Vector2Divide(selected_tile_coordinates, Vector2AddValue(board.tile_size, board.tile_space));
@@ -354,10 +380,9 @@ int main() {
 			origin = Vector2Add(origin, Vector2Divide(board.tile_size, { 2.0,2.0 }));
 		}
 
-		if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+		if (board.isStable() && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
 			if (selected_tile_coordinates.x >= 0 && selected_tile_coordinates.x < board.dimensions.x && selected_tile_coordinates.y >= 0 && selected_tile_coordinates.y < board.dimensions.y) {
 				direction = Vector2Subtract(GetMousePosition(), origin);
-				tmp_value = board.getTileValue(selected_tile_coordinates);
 				if (abs(direction.x) > abs(direction.y) && direction.x > 10) {
 					board.swapTiles(selected_tile_coordinates, { selected_tile_coordinates.x + 1,selected_tile_coordinates.y });
 					cout << "right\n";
